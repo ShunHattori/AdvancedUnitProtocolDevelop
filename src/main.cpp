@@ -4,7 +4,7 @@
 #define TX PA_9
 #define RX PA_10
 
-//#define IsControllerTransmitter
+#define IsControllerTransmitter
 
 //Serial com(TX, RX, 9600);
 Serial PC(USBTX, USBRX, 256000);
@@ -33,7 +33,7 @@ int main()
                 cont.work(5, Tdata, Rdata),
                 Rdata[0], Rdata[1], Rdata[2],
                 Rdata[3], Rdata[4]);
-      //wait_ms(5);
+      //wait_ms(2);
     }
   }
 #endif

@@ -13,7 +13,7 @@ class AdvancedUnitProtocol
 {
 private:
     Serial *_PORT;
-    Timer *_watchDogTimer;
+    Timer *_watchDogTimer1, *_watchDogTimer2;
     int _baudPort, _timeoutUs, _arrayLenght, _incomingDataCounter;
     bool communicatePhase;
     char _buffer[500], _bufferCheckSum = 0;
@@ -46,9 +46,11 @@ AdvancedUnitProtocol::AdvancedUnitProtocol(PinName uartTX, PinName uartRX, int u
 {
     _baudPort = uartBaud;
     _PORT = new Serial(uartTX, uartRX, _baudPort);
-    _watchDogTimer = new Timer();
-    _watchDogTimer->start();
-    _timeoutUs = 5000; //set the timeout time to 10000Us
+    _watchDogTimer1 = new Timer();
+    _watchDogTimer1->start();
+    _watchDogTimer2 = new Timer();
+    _watchDogTimer2->start();
+    _timeoutUs = 5000; //set the timeout time to 5000Us
     communicatePhase = 0;
 }
 
@@ -58,6 +60,11 @@ AdvancedUnitProtocol::~AdvancedUnitProtocol()
 
 int AdvancedUnitProtocol::work(int arrayLenght, uint8_t *DataPacket, uint8_t *variableToStore)
 {
+    if (_watchDogTimer2->read_ms() > 10)
+    {
+        communicatePhase = !communicatePhase;
+        _watchDogTimer2->reset();
+    }
     switch (communicatePhase)
     {
     case 0:              //receive
@@ -80,6 +87,7 @@ int AdvancedUnitProtocol::work(int arrayLenght, uint8_t *DataPacket, uint8_t *va
         }
         applyData(variableToStore);
         communicatePhase = 1;
+        _watchDogTimer2->reset();
         return 4;
 
     case 1: //transmit
@@ -92,6 +100,7 @@ int AdvancedUnitProtocol::work(int arrayLenght, uint8_t *DataPacket, uint8_t *va
         sendData(arrayLenght, DataPacket);
         sendCheckSum(arrayLenght, DataPacket);
         communicatePhase = 0;
+        _watchDogTimer2->reset();
         return 6;
     }
     return 7;
@@ -99,10 +108,10 @@ int AdvancedUnitProtocol::work(int arrayLenght, uint8_t *DataPacket, uint8_t *va
 
 bool AdvancedUnitProtocol::waitData()
 {
-    _watchDogTimer->reset();
+    _watchDogTimer1->reset();
     while (!_PORT->readable())
     {
-        if (_watchDogTimer->read_us() > _timeoutUs) //タイムアウト
+        if (_watchDogTimer1->read_us() > _timeoutUs) //タイムアウト
         {
             return 0;
         }
@@ -120,6 +129,7 @@ bool AdvancedUnitProtocol::checkENQ()
     {
         return 0;
     }
+
     return 1;
 }
 
@@ -133,6 +143,7 @@ bool AdvancedUnitProtocol::checkACK()
     {
         return 0;
     }
+
     return 1;
 }
 
@@ -161,10 +172,14 @@ void AdvancedUnitProtocol::sendData(int _lenght, uint8_t *_sendData)
 
 void AdvancedUnitProtocol::sendCheckSum(int _lenght, uint8_t *_sendData)
 {
+    _bufferCheckSum = 0;
     for (int i = 0; i < _lenght; i++)
     {
+        //printf("TRANSMITTED DATA [%d], [%d]\r\n", i, _sendData[i]);
         _bufferCheckSum ^= _sendData[i];
     }
+    //printf("TRANSMITTED CHECKSUM [%d]\r\n", _bufferCheckSum);
+
     _PORT->putc(_bufferCheckSum);
 }
 
@@ -180,6 +195,7 @@ bool AdvancedUnitProtocol::checkArrayLenght()
 
 bool AdvancedUnitProtocol::saveToBuffer()
 {
+    _incomingDataCounter = 0;
     for (int i = 0; i < _arrayLenght; i++)
     {
         if (!waitData())
@@ -195,21 +211,28 @@ bool AdvancedUnitProtocol::confirmCheckSum()
 {
     if (_arrayLenght != _incomingDataCounter)
     {
+        //printf("LENGHT ERROR [%d], [%d]", _arrayLenght, _incomingDataCounter);
         return 0;
     }
-    _incomingDataCounter = 0;
+    //printf("GOT PACKET LENGHT [%d]\r\n", _arrayLenght);
+    _bufferCheckSum = 0;
     for (int i = 0; i < _arrayLenght; i++)
     {
+        //printf("RECEIVED DATA [%d], [%d]\r\n", i, _buffer[i]);
         _bufferCheckSum ^= _buffer[i];
     }
     if (!waitData())
     {
+        //printf("TIMEOUT WHILE DATA RECEIVING\r\n");
         return 0;
     }
-    if (_PORT->getc() != _bufferCheckSum) //チェックサム比較
+    uint8_t check = _PORT->getc();
+    if (check != _bufferCheckSum) //チェックサム比較
     {
+        //printf("CHECKSUM INCORRECT [%d], [%d]\r\n", check, _bufferCheckSum);
         return 0;
     }
+    //printf("CHECKSUM CORRENT [%d], [%d]\r\n", check, _bufferCheckSum);
     return 1;
 }
 
@@ -223,7 +246,7 @@ void AdvancedUnitProtocol::applyData(uint8_t *__variableToStore)
 
 void AdvancedUnitProtocol::setTimeout(int timeoutTimeInUs)
 {
-    _timeoutUs = timeoutTimeInUs < 500 ? 500 : timeoutTimeInUs; //minimum = 10ms
+    _timeoutUs = timeoutTimeInUs < 5000 ? 5000 : timeoutTimeInUs; //minimum = 5ms
 }
 
 void AdvancedUnitProtocol::setCommunicationPhase(bool phase)
